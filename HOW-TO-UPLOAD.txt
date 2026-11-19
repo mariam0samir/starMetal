@@ -1,0 +1,7 @@
+خطوات التشغيل باختصار:
+1) Supabase: مشروع جديد ← SQL Editor ← الصق supabase/schema.sql كامل ← Run
+2) Supabase: Authentication ← Email ← اقفل Confirm email
+3) Vercel: New Project من GitHub ← Environment Variables:
+   VITE_SUPABASE_URL  و  VITE_SUPABASE_ANON_KEY  ← Deploy
+4) افتح الموقع واعمل أول حساب = مدير النظام
+التفاصيل كاملة في README.md
