@@ -20,7 +20,7 @@ export const REPORT_GROUPS = [
   ['المخازن', ['stock_moves', 'stock_balance', 'low_stock', 'top_consumed', 'in_out']],
   ['الإنتاج', ['production_daily', 'production_monthly', 'work_orders', 'wo_cost', 'wo_profit', 'scrap', 'qc', 'machines']],
   ['المبيعات والمشتريات', ['sales', 'purchases', 'customers', 'suppliers']],
-  ['الأرباح والخسائر', ['pnl', 'pnl_monthly', 'wo_profit']],
+  ['الأرباح والخسائر', ['annual', 'pnl', 'pnl_monthly', 'wo_profit']],
   ['الحسابات', ['expenses', 'treasury', 'cash_daily']],
   ['النقل والموظفين', ['vehicles', 'drivers', 'attendance']],
   ['النظام', ['system_overview', 'monthly_summary', 'drafts', 'activity']],
@@ -360,7 +360,7 @@ REPORTS.monthly_summary = {
 const addMonthKey = (m) => { const [y, mo] = m.split('-').map(Number); return mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, '0')}` }
 
 // ═════════ قائمة الأرباح والخسائر ═════════
-async function pnlData(from, to) {
+async function pnlFetch(from, to) {
   const [si, ss, outMoves, adjMoves, ex, trips, dtx, etx] = await Promise.all([
     safeList('sales_invoices', { filters: [...inRange('inv_date', from, to), ['status', 'eq', 'approved']], select: 'inv_date,subtotal,discount,transport_cost,tax_amount,total' }),
     safeList('scrap_sales', { filters: [...inRange('sale_date', from, to), ['status', 'eq', 'approved']], select: 'sale_date,total' }),
@@ -371,6 +371,13 @@ async function pnlData(from, to) {
     safeList('driver_transactions', { filters: inRange('tx_date', from, to), select: 'tx_date,kind,amount' }),
     safeList('employee_transactions', { filters: inRange('tx_date', from, to), select: 'tx_date,kind,amount' }),
   ])
+  return { si, ss, outMoves, adjMoves, ex, trips, dtx, etx }
+}
+// بيحسب الأرباح والخسائر من بيانات متحمّلة، لفترة جزئية منها
+function pnlCalc(raw, from, to) {
+  const inP = (k) => (r) => { const d = String(r[k]).slice(0, 10); return d >= from && d <= to }
+  const si = raw.si.filter(inP('inv_date')), ss = raw.ss.filter(inP('sale_date')), outMoves = raw.outMoves.filter(inP('move_date')), adjMoves = raw.adjMoves.filter(inP('move_date'))
+  const ex = raw.ex.filter(inP('exp_date')), trips = raw.trips.filter(inP('trip_date')), dtx = raw.dtx.filter(inP('tx_date')), etx = raw.etx.filter(inP('tx_date'))
   const val = (m) => Math.abs(n(m.qty)) * n(m.unit_cost)
   const adj = adjMoves.filter((m) => m.reason === 'فرق جرد' || /تسوية/.test(m.reason || ''))
   const d = {
@@ -391,6 +398,8 @@ async function pnlData(from, to) {
   d.net = d.gross - d.operating - d.invLoss + d.invGain
   return d
 }
+async function pnlData(from, to) { return pnlCalc(await pnlFetch(from, to), from, to) }
+const monthLast = (m) => { const [y, mo] = m.split('-').map(Number); return `${m}-${String(new Date(Date.UTC(y, mo, 0)).getUTCDate()).padStart(2, '0')}` }
 
 REPORTS.pnl = {
   title: 'قائمة الأرباح والخسائر', perm: 'reports',
@@ -442,19 +451,60 @@ REPORTS.pnl_monthly = {
   async run({ from, to }) {
     const months = []
     for (let m = from.slice(0, 7); m <= to.slice(0, 7) && months.length < 36; m = addMonthKey(m)) months.push(m)
-    const rows = []
-    for (const m of months) {
-      const f = m < from.slice(0, 7) ? from : (m === from.slice(0, 7) ? from : m + '-01')
-      const last = (() => { const [y, mo] = m.split('-').map(Number); return new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10) })()
-      const t = last > to ? to : last
-      const d = await pnlData(f, t)
-      rows.push({ m, rev: d.revenue, cost: d.cost, gross: d.gross, exp: d.operating, inv: d.invGain - d.invLoss, net: d.net, margin: d.revenue ? d.net / d.revenue * 100 : null })
-    }
+    const raw = await pnlFetch(from, to)
+    const rows = months.map((m) => {
+      const f = m === from.slice(0, 7) ? from : m + '-01'
+      const t = monthLast(m) > to ? to : monthLast(m)
+      const d = pnlCalc(raw, f, t)
+      return { m, rev: d.revenue, cost: d.cost, gross: d.gross, exp: d.operating, inv: d.invGain - d.invLoss, net: d.net, margin: d.revenue ? d.net / d.revenue * 100 : null }
+    })
     const tot = Object.fromEntries(['rev', 'cost', 'gross', 'exp', 'inv', 'net'].map((k) => [k, sum(rows, k)]))
     return {
       columns: [T('m', 'الشهر', 'text', { value: (r) => `${MONTHS[Number(r.m.slice(5, 7)) - 1]} ${r.m.slice(0, 4)}` }), T('rev', 'الإيرادات', 'money'), T('cost', 'تكلفة المبيعات', 'money'), T('gross', 'مجمل الربح', 'money'), T('exp', 'المصروفات', 'money'), T('inv', 'فروق المخزون', 'money'), T('net', 'صافي الربح / الخسارة', 'money'), T('margin', 'هامش صافي', 'pct')],
       rows, totals: tot, chart: rows.length > 1 ? rows.map((r) => ({ label: MONTHS[Number(r.m.slice(5, 7)) - 1], v: Math.max(0, r.net) })) : null,
       kpis: [['صافي الفترة', money(tot.net)], ['الشهور', `${rows.filter((r) => r.net > 0).length} ربح — ${rows.filter((r) => r.net < 0).length} خسارة`]],
+    }
+  },
+}
+
+// ═════════ التقرير السنوي (مقارنة بالسنة اللي فاتت) ═════════
+REPORTS.annual = {
+  title: 'التقرير السنوي', perm: 'reports', yearly: true,
+  async run({ from }) {
+    const Y = Number(String(from).slice(0, 4)), P = Y - 1
+    const [raw, moves, scrap, wos] = await Promise.all([
+      pnlFetch(`${P}-01-01`, `${Y}-12-31`),
+      safeList('stock_moves', { filters: [...inRange('move_date', `${P}-01-01`, `${Y}-12-31`), ['qty', 'gt', 0]], select: 'move_date,qty,reason,doc_type' }),
+      safeList('scrap_records', { filters: [...inRange('rec_date', `${P}-01-01`, `${Y}-12-31`), ['status', 'eq', 'approved']], select: 'rec_date,weight' }),
+      safeList('work_orders', { filters: inRange('start_date', `${P}-01-01`, `${Y}-12-31`), select: 'start_date,status' }),
+    ])
+    const prod = (f, t) => sum(moves.filter((m) => m.reason === 'استلام إنتاج' && m.move_date >= f && m.move_date <= t), 'qty')
+    const rawIn = (f, t) => sum(moves.filter((m) => m.doc_type === 'gate_in' && m.move_date >= f && m.move_date <= t), 'qty')
+    const scr = (f, t) => sum(scrap.filter((m) => m.rec_date >= f && m.rec_date <= t), 'weight')
+    const wo = (f, t) => wos.filter((w) => w.start_date >= f && w.start_date <= t).length
+    const rows = []
+    for (let i = 1; i <= 12; i++) {
+      const mm = String(i).padStart(2, '0')
+      const c = pnlCalc(raw, `${Y}-${mm}-01`, monthLast(`${Y}-${mm}`)), p = pnlCalc(raw, `${P}-${mm}-01`, monthLast(`${P}-${mm}`))
+      rows.push({ m: MONTHS[i - 1], rev: c.revenue, revP: p.revenue, revCh: p.revenue ? (c.revenue - p.revenue) / p.revenue * 100 : null, gross: c.gross, exp: c.operating, net: c.net, netP: p.net,
+        prod: prod(`${Y}-${mm}-01`, monthLast(`${Y}-${mm}`)), scrap: scr(`${Y}-${mm}-01`, monthLast(`${Y}-${mm}`)), wo: wo(`${Y}-${mm}-01`, monthLast(`${Y}-${mm}`)) })
+    }
+    const cy = pnlCalc(raw, `${Y}-01-01`, `${Y}-12-31`), py = pnlCalc(raw, `${P}-01-01`, `${P}-12-31`)
+    const ch = (a, b) => (b ? `${num((a - b) / Math.abs(b) * 100)}%` : '—')
+    const best = [...rows].sort((a, b) => b.net - a.net)[0]
+    const tot = Object.fromEntries(['rev', 'revP', 'gross', 'exp', 'net', 'netP', 'prod', 'scrap', 'wo'].map((k) => [k, sum(rows, k)]))
+    const summary = [
+      { l: 'إجمالي الإيرادات', c: cy.revenue, p: py.revenue }, { l: 'تكلفة المبيعات', c: cy.cost, p: py.cost }, { l: 'مجمل الربح', c: cy.gross, p: py.gross },
+      { l: 'إجمالي المصروفات', c: cy.operating, p: py.operating }, { l: 'صافي الربح / الخسارة', c: cy.net, p: py.net },
+      { l: 'الإنتاج (كمية)', c: prod(`${Y}-01-01`, `${Y}-12-31`), p: prod(`${P}-01-01`, `${P}-12-31`), q: true }, { l: 'خامات واردة (كمية)', c: rawIn(`${Y}-01-01`, `${Y}-12-31`), p: rawIn(`${P}-01-01`, `${P}-12-31`), q: true },
+      { l: 'الهالك (كجم)', c: scr(`${Y}-01-01`, `${Y}-12-31`), p: scr(`${P}-01-01`, `${P}-12-31`), q: true }, { l: 'أوامر التشغيل', c: wo(`${Y}-01-01`, `${Y}-12-31`), p: wo(`${P}-01-01`, `${P}-12-31`), q: true },
+    ].map((r) => ({ ...r, ch: r.p ? (r.c - r.p) / Math.abs(r.p) * 100 : null }))
+    return {
+      title: `التقرير السنوي ${Y} (مقارنة بـ ${P})`,
+      columns: [T('m', 'الشهر'), T('rev', `الإيرادات ${Y}`, 'money'), T('revP', `الإيرادات ${P}`, 'money'), T('revCh', 'التغيير', 'pct'), T('gross', 'مجمل الربح', 'money'), T('exp', 'المصروفات', 'money'), T('net', `صافي ${Y}`, 'money'), T('netP', `صافي ${P}`, 'money'), T('prod', 'الإنتاج', 'num'), T('scrap', 'الهالك (كجم)', 'num'), T('wo', 'أوامر التشغيل', 'num')],
+      rows, totals: tot, chart: rows.map((r) => ({ label: r.m, v: r.rev })),
+      kpis: [[`إيرادات ${Y}`, `${money(cy.revenue)} (${ch(cy.revenue, py.revenue)})`], [`صافي ${cy.net >= 0 ? 'ربح' : 'خسارة'} ${Y}`, `${money(Math.abs(cy.net))} (${ch(cy.net, py.net)})`], ['هامش الربح الصافي', num(cy.revenue ? cy.net / cy.revenue * 100 : 0) + '%'], ['أفضل شهر', best && best.net ? best.m : '—']],
+      extra: { title: `ملخص سنة ${Y} مقارنة بسنة ${P}`, columns: [T('l', 'البند'), T('c', String(Y), 'money', { value: (r) => (r.q ? null : r.c) }), T('cq', `${Y} (كمية)`, 'num', { value: (r) => (r.q ? r.c : null) }), T('p', String(P), 'money', { value: (r) => (r.q ? null : r.p) }), T('pq', `${P} (كمية)`, 'num', { value: (r) => (r.q ? r.p : null) }), T('ch', 'التغيير', 'pct')], rows: summary },
     }
   },
 }

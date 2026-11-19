@@ -32,6 +32,7 @@ const P = {
   list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
   scale: 'M12 3v18M5 21h14M5 7l-3 7a3 3 0 0 0 6 0zm14 0l-3 7a3 3 0 0 0 6 0zM5 7h14',
   id: 'M3 5h18v14H3zM9 12a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm-3 4a3 3 0 0 1 6 0M15 9h3m-3 3h3m-3 3h2',
+  calendar: 'M4 5h16v16H4zM4 10h16M9 3v4m6-4v4M8 14h2m4 0h2M8 17h2',
   clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zm0-13v4l3 2',
   report: 'M4 4h16v16H4zM8 16v-4m4 4V8m4 8v-6',
   download: 'M12 3v12m-5-5l5 5 5-5M4 21h16',

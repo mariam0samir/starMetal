@@ -39,7 +39,7 @@ export default function Reports() {
   useEffect(() => { if (query.r && query.r !== key) { setKey(query.r); setP((x) => ({ ...x, from: query.from || x.from, to: query.to || x.to })) } }, [query.r, query.from, query.to]) // eslint-disable-line
   useEffect(() => { if (key) run() }, [key]) // eslint-disable-line
 
-  const period = rep?.noDate ? `حتى ${fmtDate(today())}` : rep?.singleDay ? fmtDate(p.from) : `من ${fmtDate(p.from)} إلى ${fmtDate(p.to)}`
+  const period = rep?.yearly ? `سنة ${p.from.slice(0, 4)}` : rep?.noDate ? `حتى ${fmtDate(today())}` : rep?.singleDay ? fmtDate(p.from) : `من ${fmtDate(p.from)} إلى ${fmtDate(p.to)}`
   const title = res?.title || rep?.title
   const xl = () => { const sheets = [toSheet(title, res, period)]; if (res.extra) sheets.push(toSheet(res.extra.title, res.extra, period)); downloadXlsx(`${title} ${p.from}${rep.noDate ? '' : ' - ' + p.to}`, sheets) }
   const pdf = () => openPrint(title, companyHeader(settings.company, title, '', period) + toHtml(res))
@@ -60,7 +60,8 @@ export default function Reports() {
           {!rep ? <Empty icon="report" text="اختار تقرير من القايمة" /> : <>
             <div className="card filters">
               <b className="rep-t">{rep.title}</b>
-              {!rep.noDate && <>
+              {rep.yearly && <label className="f-l">السنة <select value={p.from.slice(0, 4)} onChange={(e) => setP({ ...p, from: e.target.value + '-01-01', to: e.target.value + '-12-31' })}>{Array.from({ length: 8 }, (_, i) => String(Number(today().slice(0, 4)) - i)).map((y) => <option key={y} value={y}>{y}</option>)}</select></label>}
+              {!rep.noDate && !rep.yearly && <>
                 <label className="f-l">{rep.singleDay ? 'اليوم' : 'من'} <input type="date" value={p.from} onChange={(e) => setP({ ...p, from: e.target.value })} /></label>
                 {!rep.singleDay && <label className="f-l">إلى <input type="date" value={p.to} onChange={(e) => setP({ ...p, to: e.target.value })} /></label>}
                 {!rep.singleDay && <div className="chips"><button onClick={() => setRange(today(), today())}>النهارده</button><button onClick={() => setRange(weekStart(), today())}>الأسبوع ده</button><button onClick={() => setRange(monthStart(), today())}>الشهر ده</button><button onClick={() => setRange(lm, monthEnd(lm))}>الشهر اللي فات</button><button onClick={() => setRange(today().slice(0, 4) + '-01-01', today())}>السنة دي</button></div>}
@@ -84,7 +85,7 @@ export default function Reports() {
 
 // ═════════ التقارير الأسبوعية والشهرية (تحميل) ═════════
 const PERIODIC = [
-  ['pnl', 'الأرباح والخسائر'], ['pnl_monthly', 'الأرباح والخسائر شهر بشهر'], ['monthly_summary', 'مقارنة الشهور'], ['production_daily', 'الإنتاج'], ['in_out', 'الداخل والخارج'], ['stock_moves', 'حركة المخزون'], ['top_consumed', 'استهلاك الخامات'], ['work_orders', 'أوامر التشغيل'],
+  ['annual', 'المقارنة بالسنة اللي فاتت'], ['pnl', 'الأرباح والخسائر'], ['pnl_monthly', 'الأرباح والخسائر شهر بشهر'], ['monthly_summary', 'مقارنة الشهور'], ['production_daily', 'الإنتاج'], ['in_out', 'الداخل والخارج'], ['stock_moves', 'حركة المخزون'], ['top_consumed', 'استهلاك الخامات'], ['work_orders', 'أوامر التشغيل'],
   ['wo_profit', 'ربحية أوامر التشغيل'], ['scrap', 'الهالك'], ['qc', 'الجودة'], ['sales', 'المبيعات'], ['purchases', 'المشتريات'], ['customers', 'العملاء'], ['suppliers', 'الموردين'],
   ['expenses', 'المصروفات'], ['treasury', 'الخزينة'], ['drivers', 'السائقين'], ['vehicles', 'السيارات'], ['machines', 'الماكينات'], ['attendance', 'الحضور'], ['stock_balance', 'رصيد المخزون آخر الفترة'], ['low_stock', 'أصناف تحت حد الطلب'], ['drafts', 'مستندات مستنية اعتماد'], ['system_overview', 'ملخص النظام'],
 ]
@@ -115,6 +116,7 @@ export function Periodic() {
       const parts = []
       for (const [k0, l] of allowed.filter(([k]) => sel[k])) {
         if (['monthly_summary', 'pnl_monthly'].includes(k0) && type === 'week') continue
+        if (k0 === 'annual' && type !== 'year') continue
         const k = k0 === 'production_daily' && type === 'year' ? 'production_monthly' : k0
         setProgress(l)
         try { parts.push({ k, l, res: await REPORTS[k].run({ from: range.from, to: range.to }, R) }) } catch (e) { parts.push({ k, l, error: errMsg(e) }) }
@@ -167,7 +169,7 @@ export function Periodic() {
         <p className="per-range"><Icon name="clock" size={16} /> {range.name}</p>
         <h4>الأقسام اللي هتدخل في التقرير</h4>
         <div className="per-sel">
-          {allowed.filter(([k]) => !(['monthly_summary', 'pnl_monthly'].includes(k) && type === 'week')).map(([k, l]) => <label key={k} className="chk"><input type="checkbox" checked={sel[k]} onChange={(e) => { setSel({ ...sel, [k]: e.target.checked }); setOut(null) }} /><span>{l}</span></label>)}
+          {allowed.filter(([k]) => !(['monthly_summary', 'pnl_monthly'].includes(k) && type === 'week') && !(k === 'annual' && type !== 'year')).map(([k, l]) => <label key={k} className="chk"><input type="checkbox" checked={sel[k]} onChange={(e) => { setSel({ ...sel, [k]: e.target.checked }); setOut(null) }} /><span>{l}</span></label>)}
         </div>
         <div className="per-act">
           <Btn kind="primary" icon="excel" size="lg" busy={busy === 'build'} onClick={excel}>تحميل Excel</Btn>
