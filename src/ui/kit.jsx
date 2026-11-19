@@ -1,10 +1,12 @@
 // عناصر الواجهة المشتركة
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from './Icon'
 import { backend } from '../lib/backend'
-import { useRef_, useToast, errMsg } from '../lib/app'
+import { useRef_, useToast, errMsg, useAuth } from '../lib/app'
+import { downloadXlsx } from '../lib/xlsx'
+import { openPrint, companyHeader, table as ptable } from '../lib/print'
 import { REF_LABEL } from '../config/modules'
-import { label as optLabel, OPTIONS, STATUS_TONE, num, money } from '../lib/format'
+import { label as optLabel, OPTIONS, STATUS_TONE, num, money, fmtDate, today } from '../lib/format'
 
 export function Btn({ children, icon, kind = 'default', size, onClick, disabled, type = 'button', title, busy, className = '' }) {
   return (
@@ -196,7 +198,38 @@ export function FilesInput({ value, onChange, disabled }) {
 }
 
 // ───────────── جدول بيانات بالترتيب ─────────────
-export function DataTable({ columns, rows, onRow, empty, foot, rowKey = 'id', maxRows = 500, dense }) {
+// نص أي خلية (حتى لو فيها لينك أو شارة) عشان التصدير
+export function textOf(x) {
+  if (x === null || x === undefined || x === false || x === true) return ''
+  if (typeof x === 'string' || typeof x === 'number') return String(x)
+  if (Array.isArray(x)) return x.map(textOf).join('')
+  if (x.props) {
+    if (typeof x.type === 'function' && x.props.children === undefined) { try { return textOf(x.type(x.props)) } catch { return '' } }
+    return textOf(x.props.children)
+  }
+  return ''
+}
+const cellRaw = (c, r) => (c.exportValue ? c.exportValue(r) : c.value ? c.value(r) : c.render ? textOf(c.render(r)) : r[c.key])
+
+// زرار تقرير (Excel + طباعة/PDF) لأي جدول في السيستم
+export function TableExport({ columns, rows, title, foot }) {
+  const { settings } = useAuth() || {}
+  const name = () => title || document.querySelector('.page-head h1')?.textContent || 'تقرير'
+  const cols = columns.filter((c) => c.label)
+  const xl = () => downloadXlsx(`${name()} ${today()}`, [{
+    name: name(), title: name(), subtitle: `تاريخ التقرير ${fmtDate(today())} — ${rows.length} سطر`,
+    columns: cols.map((c) => ({ key: c.key, label: c.label, type: c.money ? 'money' : c.num ? 'num' : 'text', value: (r) => { const v = cellRaw(c, r); return (c.money || c.num) && v !== '' && v !== null && !isNaN(Number(v)) ? Number(v) : v } })),
+    rows, totals: foot ? Object.fromEntries(Object.entries(foot).filter(([k, v]) => k !== '__label' && typeof v === 'number')) : undefined,
+  }])
+  const pr = () => openPrint(name(), companyHeader(settings?.company || {}, name(), '', fmtDate(today())) + ptable(cols.map((c) => ({ label: c.label, num: c.num || c.money, value: (r) => { const v = cellRaw(c, r); return c.money ? money(v) : c.num && v !== '' && v !== null && !isNaN(Number(v)) ? num(v, c.d || 2) : v ?? '' } })), rows,
+    foot ? Object.fromEntries([['__label', foot.__label || 'الإجمالي'], ...cols.filter((c) => typeof foot[c.key] === 'number').map((c) => [c.key, c.money ? money(foot[c.key]) : num(foot[c.key])])]) : null))
+  return <div className="t-export"><button type="button" onClick={xl} title="تقرير Excel"><Icon name="excel" size={15} />Excel</button><button type="button" onClick={pr} title="طباعة / PDF"><Icon name="print" size={15} />PDF</button></div>
+}
+
+export const TableTitle = createContext('')
+export function DataTable({ columns, rows, onRow, empty, foot, rowKey = 'id', maxRows = 500, dense, title: t0, noExport }) {
+  const ctxTitle = useContext(TableTitle)
+  const title = t0 || ctxTitle
   const [sort, setSort] = useState(null)
   const [limit, setLimit] = useState(maxRows)
   const sorted = useMemo(() => {
@@ -215,6 +248,7 @@ export function DataTable({ columns, rows, onRow, empty, foot, rowKey = 'id', ma
   if (!rows.length) return empty || <Empty />
   return (
     <div className="table-wrap">
+      {!noExport && <TableExport columns={columns} rows={sorted} title={title} foot={foot} />}
       <table className={`dt ${dense ? 'dense' : ''}`}>
         <thead><tr>{columns.map((c) => (
           <th key={c.key} className={c.num || c.money ? 'n' : ''} style={c.width ? { width: c.width } : undefined}

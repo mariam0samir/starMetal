@@ -403,9 +403,9 @@ export const NAV = [
   ['المشتريات', [['purchase_requests', null, null], ['purchase_orders', null, null], ['supplier_invoices', null, null]]],
   ['المبيعات', [['quotations', null, null], ['sales_orders', null, null], ['sales_invoices', null, null]]],
   ['النقل', [['drivers', null, null], ['trips', null, null], ['driver_transactions', null, null], ['vehicles', null, null], ['vehicle_logs', null, null]]],
-  ['الحسابات', [['cashboxes', null, null], ['cash_transactions', null, null], ['expenses', null, null], ['expense_categories', null, null], ['/balances', 'أرصدة العملاء والموردين', 'scale', 'parties']]],
+  ['الحسابات', [['cashboxes', null, null], ['cash_transactions', null, null], ['expenses', null, null], ['expense_categories', null, null], ['/balances', 'أرصدة العملاء والموردين', 'scale', 'parties'], ['/pnl', 'الأرباح والخسائر', 'coins', 'reports']]],
   ['الموظفين', [['employees', null, null], ['attendance', null, null], ['employee_transactions', null, null]]],
-  ['التقارير', [['/reports', 'مركز التقارير', 'report', 'reports'], ['/periodic', 'تقارير أسبوعية وشهرية', 'download', 'reports']]],
+  ['التقارير', [['/reports', 'مركز التقارير', 'report', 'reports'], ['/periodic', 'تقارير أسبوعية وشهرية وسنوية', 'download', 'reports'], ['/system-report', 'تقرير النظام', 'chart', 'reports']]],
   ['النظام', [['/users', 'المستخدمين والصلاحيات', 'lock', 'users'], ['/audit', 'سجل العمليات', 'history', 'audit'], ['/settings', 'الإعدادات', 'settings', 'settings']]],
 ]
 

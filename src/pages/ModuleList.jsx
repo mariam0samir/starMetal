@@ -113,7 +113,7 @@ export default function ModuleList({ mkey }) {
 
       <div className="card pad0">
         {loading ? <Spinner /> : error ? <ErrorBox error={error} onRetry={reload} />
-          : <DataTable columns={columns} rows={rows} foot={foot} onRow={(r) => go(`/m/${mkey}/${r.id}`)}
+          : <DataTable noExport columns={columns} rows={rows} foot={foot} onRow={(r) => go(`/m/${mkey}/${r.id}`)}
               empty={<Empty text={q ? 'مفيش نتايج للبحث' : `مفيش ${m.title} ${m.dateField && from ? 'في الفترة دي' : 'لسه'}`}>{can(m.perm, 'create') && !q && <Btn kind="primary" icon="plus" onClick={() => go(`/m/${mkey}/new`, newQuery)}>إضافة {m.single}</Btn>}</Empty>} />}
       </div>
     </div>

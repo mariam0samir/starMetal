@@ -412,3 +412,18 @@ input[type=checkbox] { accent-color: #c8161d; }
 .kpi b, .per-box > b, .per-range { color: #2a313c; }
 .per-range { background: #fde8e9; }
 .cost-t .tot td { background: #f6f3f3; }
+
+/* زرار التقرير فوق كل جدول */
+.t-export { display: flex; gap: 6px; justify-content: flex-end; padding: 8px 10px; border-bottom: 1px solid var(--line-2); background: #fafbfc; }
+.t-export button { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); background: #fff; border-radius: 7px; padding: 3px 10px; font-size: 12px; font-weight: 600; cursor: pointer; color: var(--ink-2); }
+.t-export button:hover { border-color: #c8161d; color: #c8161d; }
+
+/* قائمة الأرباح والخسائر */
+.pl-head { font-weight: 800; color: #2a313c; }
+.pl-total { font-weight: 800; }
+.pl-net { font-weight: 900; font-size: 15px; color: #157a4b; }
+.pl-net.neg { color: #c8161d; }
+
+.dt td.n, .dt th.n { direction: ltr; unicode-bidi: isolate; }
+.pl-item { padding-right: 18px; display: inline-block; color: var(--ink-2); }
+.pl-total { color: #1a1f27; }

@@ -64,8 +64,8 @@ export function StockBalance() {
       </div>
       <div className="card pad0">
         {(view === 'items' ? itemStock : bal).loading ? <Spinner /> : (view === 'items' ? itemStock : bal).error ? <ErrorBox error={(view === 'items' ? itemStock : bal).error} />
-          : view === 'items' ? <DataTable rows={rowsItems} rowKey="item_id" columns={colsI} foot={{ __label: `${rowsItems.length} صنف`, value: totalValue }} />
-          : <DataTable rows={rowsWh} rowKey={null} columns={colsW} foot={{ __label: `${rowsWh.length} سطر`, value: rowsWh.reduce((s, r) => s + n(r.value), 0), qty: rowsWh.reduce((s, r) => s + n(r.qty), 0) }} />}
+          : view === 'items' ? <DataTable noExport rows={rowsItems} rowKey="item_id" columns={colsI} foot={{ __label: `${rowsItems.length} صنف`, value: totalValue }} />
+          : <DataTable noExport rows={rowsWh} rowKey={null} columns={colsW} foot={{ __label: `${rowsWh.length} سطر`, value: rowsWh.reduce((s, r) => s + n(r.value), 0), qty: rowsWh.reduce((s, r) => s + n(r.qty), 0) }} />}
       </div>
     </div>
   )
@@ -155,7 +155,7 @@ export function Costing() {
         <Stat label="متوسط نسبة الهالك" value={num(tot.issued_qty ? tot.scrap_qty / tot.issued_qty * 100 : 0) + '%'} icon="recycle" tone="amber" />
       </div>
       <div className="filters card"><label className="f-l">الحالة <Select opt="wo_status" value={st} onChange={setSt} placeholder="الكل" /></label></div>
-      <div className="card pad0">{d.loading ? <Spinner /> : d.error ? <ErrorBox error={d.error} /> : <DataTable rows={rows} rowKey="wo_id" columns={cols} foot={tot} />}</div>
+      <div className="card pad0">{d.loading ? <Spinner /> : d.error ? <ErrorBox error={d.error} /> : <DataTable noExport rows={rows} rowKey="wo_id" columns={cols} foot={tot} />}</div>
     </div>
   )
 }
@@ -190,7 +190,7 @@ export function Balances() {
         <Stat label="عدد الحسابات المفتوحة" value={num(rows.length)} icon="users" tone="gray" />
       </div>
       <div className="filters card"><label className="chk"><input type="checkbox" checked={hideZero} onChange={(e) => setHideZero(e.target.checked)} /><span>إخفاء الحسابات الخالصة</span></label></div>
-      <div className="card pad0">{p.loading ? <Spinner /> : p.error ? <ErrorBox error={p.error} /> : <DataTable rows={rows} rowKey="party_id" columns={cols} foot={{ __label: 'الإجمالي', balance: shownTot }} />}</div>
+      <div className="card pad0">{p.loading ? <Spinner /> : p.error ? <ErrorBox error={p.error} /> : <DataTable noExport rows={rows} rowKey="party_id" columns={cols} foot={{ __label: 'الإجمالي', balance: shownTot }} />}</div>
     </div>
   )
 }

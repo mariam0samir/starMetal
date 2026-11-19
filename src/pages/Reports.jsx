@@ -11,11 +11,11 @@ const PARAM = { warehouse: ['المخزن', 'warehouses'], party: ['العميل
 
 const toSheet = (title, res, subtitle) => ({
   name: title, title, subtitle,
-  columns: res.columns.map((c) => ({ key: c.key, label: c.label, type: c.type === 'money' ? 'money' : c.type === 'num' ? 'num' : 'text', width: c.type === 'text' ? 22 : 15, value: (r) => (c.type === 'date' ? fmtDate(cellValue(c, r)) : cellValue(c, r)) })),
+  columns: res.columns.map((c) => ({ key: c.key, label: c.label, type: c.type === 'money' ? 'money' : c.type === 'num' || c.type === 'pct' ? 'num' : 'text', width: c.type === 'text' ? 22 : 15, value: (r) => (c.type === 'date' ? fmtDate(cellValue(c, r)) : cellValue(c, r)) })),
   rows: res.rows, totals: res.totals ? Object.fromEntries(Object.entries(res.totals).map(([k, v]) => [k, v])) : undefined,
 })
 const toHtml = (res) => (res.kpis?.length ? `<div class="kpis">${res.kpis.map(([l, v]) => `<div><span>${esc(l)}</span><b>${esc(v)}</b></div>`).join('')}</div>` : '')
-  + ptable(res.columns.map((c) => ({ label: c.label, num: c.type === 'money' || c.type === 'num', value: (r) => cellShow(c, r) })), res.rows, res.totals ? Object.fromEntries([['__label', 'الإجمالي'], ...res.columns.map((c) => [c.key, totalShow(c, res.totals)])]) : null)
+  + ptable(res.columns.map((c) => ({ label: c.label, num: c.type === 'money' || c.type === 'num' || c.type === 'pct', value: (r) => cellShow(c, r) })), res.rows, res.totals ? Object.fromEntries([['__label', 'الإجمالي'], ...res.columns.map((c) => [c.key, totalShow(c, res.totals)])]) : null)
   + (res.extra ? `<h2>${esc(res.extra.title)}</h2>` + ptable(res.extra.columns.map((c) => ({ label: c.label, num: c.type !== 'text', value: (r) => cellShow(c, r) })), res.extra.rows) : '')
 
 // ═════════ مركز التقارير ═════════
@@ -36,6 +36,7 @@ export default function Reports() {
     setBusy(true); setErr(null); setRes(null)
     try { const R = await loadRefs(); setRes(await rep.run(rep.singleDay ? { ...p, to: p.from } : p, R)) } catch (e) { setErr(e) } finally { setBusy(false) }
   }
+  useEffect(() => { if (query.r && query.r !== key) { setKey(query.r); setP((x) => ({ ...x, from: query.from || x.from, to: query.to || x.to })) } }, [query.r, query.from, query.to]) // eslint-disable-line
   useEffect(() => { if (key) run() }, [key]) // eslint-disable-line
 
   const period = rep?.noDate ? `حتى ${fmtDate(today())}` : rep?.singleDay ? fmtDate(p.from) : `من ${fmtDate(p.from)} إلى ${fmtDate(p.to)}`
@@ -48,7 +49,8 @@ export default function Reports() {
   return (
     <div className="page reports">
       <PageHead title="مركز التقارير" sub="اختار التقرير والفترة — وتقدر تطبعه أو تنزّله Excel أو PDF" icon="report">
-        <Btn icon="download" onClick={() => go('/periodic')}>التقارير الأسبوعية والشهرية</Btn>
+        <Btn icon="report" onClick={() => { setKey('system_overview'); go('/reports', { r: 'system_overview' }) }}>تقرير النظام</Btn>
+        <Btn icon="download" onClick={() => go('/periodic')}>التقارير الأسبوعية والشهرية والسنوية</Btn>
       </PageHead>
       <div className="rep-layout">
         <aside className="card rep-list">
@@ -70,7 +72,7 @@ export default function Reports() {
             {busy ? <Spinner text="بيجهّز التقرير…" /> : err ? <ErrorBox error={err} onRetry={run} /> : res && <>
               {res.kpis?.length > 0 && <div className="kpi-row">{res.kpis.map(([l, v]) => <div key={l} className="kpi"><span>{l}</span><b>{v}</b></div>)}</div>}
               {res.chart && <div className="card"><BarChart data={res.chart} series={[['v', rep.title, '#c8161d']]} height={180} /></div>}
-              <div className="card pad0"><DataTable rows={res.rows} rowKey={null} columns={res.columns.map((c) => ({ key: c.key, label: c.label, num: c.type === 'num', money: c.type === 'money', d: 3, value: (r) => cellValue(c, r), render: (r) => cellShow(c, r) || '—', sortValue: (r) => cellValue(c, r) ?? '' }))} foot={res.totals ? { __label: `الإجمالي (${res.rows.length})`, ...res.totals } : null} /></div>
+              <div className="card pad0"><DataTable noExport rows={res.rows} rowKey={null} columns={res.columns.map((c) => ({ key: c.key, label: c.label, num: c.type === 'num' || c.type === 'pct', money: c.type === 'money', d: 3, value: (r) => cellValue(c, r), render: (r) => { const t = cellShow(c, r); return r.kind ? <span className={`pl-${r.kind} ${(c.type === 'money' && Number(cellValue(c, r)) < 0) ? 'neg' : ''}`}>{t}</span> : (t || '—') }, sortValue: (r) => cellValue(c, r) ?? '' }))} foot={res.totals ? { __label: `الإجمالي (${res.rows.length})`, ...res.totals } : null} /></div>
               {res.extra && <div className="card pad0"><h3 className="card-t px">{res.extra.title}</h3><DataTable dense rows={res.extra.rows} rowKey={null} columns={res.extra.columns.map((c) => ({ key: c.key, label: c.label, num: c.type !== 'text', value: (r) => cellValue(c, r), render: (r) => cellShow(c, r) }))} /></div>}
             </>}
           </>}
@@ -82,9 +84,9 @@ export default function Reports() {
 
 // ═════════ التقارير الأسبوعية والشهرية (تحميل) ═════════
 const PERIODIC = [
-  ['production_daily', 'الإنتاج'], ['in_out', 'الداخل والخارج'], ['stock_moves', 'حركة المخزون'], ['top_consumed', 'استهلاك الخامات'], ['work_orders', 'أوامر التشغيل'],
+  ['pnl', 'الأرباح والخسائر'], ['pnl_monthly', 'الأرباح والخسائر شهر بشهر'], ['monthly_summary', 'مقارنة الشهور'], ['production_daily', 'الإنتاج'], ['in_out', 'الداخل والخارج'], ['stock_moves', 'حركة المخزون'], ['top_consumed', 'استهلاك الخامات'], ['work_orders', 'أوامر التشغيل'],
   ['wo_profit', 'ربحية أوامر التشغيل'], ['scrap', 'الهالك'], ['qc', 'الجودة'], ['sales', 'المبيعات'], ['purchases', 'المشتريات'], ['customers', 'العملاء'], ['suppliers', 'الموردين'],
-  ['expenses', 'المصروفات'], ['treasury', 'الخزينة'], ['drivers', 'السائقين'], ['vehicles', 'السيارات'], ['machines', 'الماكينات'], ['attendance', 'الحضور'], ['stock_balance', 'رصيد المخزون آخر الفترة'], ['low_stock', 'أصناف تحت حد الطلب'],
+  ['expenses', 'المصروفات'], ['treasury', 'الخزينة'], ['drivers', 'السائقين'], ['vehicles', 'السيارات'], ['machines', 'الماكينات'], ['attendance', 'الحضور'], ['stock_balance', 'رصيد المخزون آخر الفترة'], ['low_stock', 'أصناف تحت حد الطلب'], ['drafts', 'مستندات مستنية اعتماد'], ['system_overview', 'ملخص النظام'],
 ]
 
 export function Periodic() {
@@ -93,6 +95,7 @@ export function Periodic() {
   const [type, setType] = useState('month')
   const [anchor, setAnchor] = useState(today())
   const [month, setMonth] = useState(today().slice(0, 7))
+  const [year, setYear] = useState(today().slice(0, 4))
   const allowed = PERIODIC.filter(([k]) => can(REPORTS[k].perm) || can('reports'))
   const [sel, setSel] = useState(() => Object.fromEntries(PERIODIC.map(([k]) => [k, true])))
   const [busy, setBusy] = useState('')
@@ -101,15 +104,18 @@ export function Periodic() {
 
   const range = useMemo(() => {
     if (type === 'week') { const f = weekStart(anchor); return { from: f, to: addDays(f, 6), name: `الأسبوع من ${fmtDate(f)} إلى ${fmtDate(addDays(f, 6))}` } }
+    if (type === 'year') return { from: `${year}-01-01`, to: `${year}-12-31`, name: `سنة ${year}` }
     const f = month + '-01'; return { from: f, to: monthEnd(f), name: `شهر ${MONTHS[Number(month.slice(5, 7)) - 1]} ${month.slice(0, 4)}` }
-  }, [type, anchor, month])
+  }, [type, anchor, month, year])
 
   const build = async () => {
     setBusy('build'); setOut(null)
     try {
       const R = await loadRefs()
       const parts = []
-      for (const [k, l] of allowed.filter(([k]) => sel[k])) {
+      for (const [k0, l] of allowed.filter(([k]) => sel[k])) {
+        if (['monthly_summary', 'pnl_monthly'].includes(k0) && type === 'week') continue
+        const k = k0 === 'production_daily' && type === 'year' ? 'production_monthly' : k0
         setProgress(l)
         try { parts.push({ k, l, res: await REPORTS[k].run({ from: range.from, to: range.to }, R) }) } catch (e) { parts.push({ k, l, error: errMsg(e) }) }
       }
@@ -117,8 +123,9 @@ export function Periodic() {
       return parts
     } catch (e) { toast(errMsg(e), 'err') } finally { setBusy(''); setProgress('') }
   }
-  const title = `التقرير ${type === 'week' ? 'الأسبوعي' : 'الشهري'} — ${range.name}`
-  const fileBase = `تقرير ${type === 'week' ? 'أسبوعي' : 'شهري'} ${range.from} - ${range.to}`
+  const KIND = { week: ['الأسبوعي', 'أسبوعي'], month: ['الشهري', 'شهري'], year: ['السنوي', 'سنوي'] }
+  const title = `التقرير ${KIND[type][0]} — ${range.name}`
+  const fileBase = `تقرير ${KIND[type][1]} ${range.from} - ${range.to}`
 
   const summaryRows = (parts) => parts.filter((p) => p.res?.kpis).flatMap((p) => p.res.kpis.map(([l, v]) => ({ s: p.l, l, v })))
   const excel = async () => {
@@ -140,13 +147,17 @@ export function Periodic() {
 
   return (
     <div className="page">
-      <PageHead title="التقارير الأسبوعية والشهرية" sub="تقرير شامل للفترة: الإنتاج والمخزون والمبيعات والتحصيل والمصروفات والنقل — نزّله Excel (كل قسم في شيت) أو PDF" icon="download" />
+      <PageHead title="التقارير الأسبوعية والشهرية والسنوية" sub="تقرير شامل للفترة: الإنتاج والمخزون والمبيعات والتحصيل والمصروفات والنقل — نزّله Excel (كل قسم في شيت) أو PDF" icon="download" />
       <div className="card periodic">
         <div className="seg">
           <button className={type === 'week' ? 'on' : ''} onClick={() => { setType('week'); setOut(null) }}><Icon name="clock" />أسبوعي</button>
           <button className={type === 'month' ? 'on' : ''} onClick={() => { setType('month'); setOut(null) }}><Icon name="report" />شهري</button>
+          <button className={type === 'year' ? 'on' : ''} onClick={() => { setType('year'); setOut(null) }}><Icon name="chart" />سنوي</button>
         </div>
-        {type === 'week' ? <div className="per-pick">
+        {type === 'year' ? <div className="per-pick">
+          <label className="f-l">السنة <select value={year} onChange={(e) => { setYear(e.target.value); setOut(null) }}>{Array.from({ length: 8 }, (_, i) => String(Number(today().slice(0, 4)) - i)).map((y) => <option key={y} value={y}>{y}</option>)}</select></label>
+          <div className="chips"><button onClick={() => { setYear(today().slice(0, 4)); setOut(null) }}>السنة دي</button><button onClick={() => { setYear(String(Number(today().slice(0, 4)) - 1)); setOut(null) }}>السنة اللي فاتت</button></div>
+        </div> : type === 'week' ? <div className="per-pick">
           <label className="f-l">أي يوم في الأسبوع <input type="date" value={anchor} onChange={(e) => { setAnchor(e.target.value); setOut(null) }} /></label>
           <div className="chips"><button onClick={() => { setAnchor(today()); setOut(null) }}>الأسبوع ده</button><button onClick={() => { setAnchor(addDays(today(), -7)); setOut(null) }}>الأسبوع اللي فات</button></div>
         </div> : <div className="per-pick">
@@ -156,7 +167,7 @@ export function Periodic() {
         <p className="per-range"><Icon name="clock" size={16} /> {range.name}</p>
         <h4>الأقسام اللي هتدخل في التقرير</h4>
         <div className="per-sel">
-          {allowed.map(([k, l]) => <label key={k} className="chk"><input type="checkbox" checked={sel[k]} onChange={(e) => { setSel({ ...sel, [k]: e.target.checked }); setOut(null) }} /><span>{l}</span></label>)}
+          {allowed.filter(([k]) => !(['monthly_summary', 'pnl_monthly'].includes(k) && type === 'week')).map(([k, l]) => <label key={k} className="chk"><input type="checkbox" checked={sel[k]} onChange={(e) => { setSel({ ...sel, [k]: e.target.checked }); setOut(null) }} /><span>{l}</span></label>)}
         </div>
         <div className="per-act">
           <Btn kind="primary" icon="excel" size="lg" busy={busy === 'build'} onClick={excel}>تحميل Excel</Btn>

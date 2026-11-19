@@ -5,6 +5,7 @@ import { today, monthStart, addDays, addMonths, fmtDate, fmtDateTime, num, money
 import { Stat, Spinner, ErrorBox, BarChart, Donut, DataTable, Badge, fmtShort } from '../ui/kit'
 import Icon from '../ui/Icon'
 import { docLink } from './details'
+import { pnlData } from '../lib/reports'
 
 const safe = (p) => p.catch(() => [])
 
@@ -14,7 +15,7 @@ export default function Dashboard() {
   const items = useRefMap('items')
   const t = today(), ms = monthStart(), since = addMonths(t, -5)
   const { data, loading, error, reload } = useLoad(async () => {
-    const [moves, stock, wos, sinv, cash, exps, parties, boxes, drivers, alerts, last] = await Promise.all([
+    const [moves, stock, wos, sinv, cash, exps, parties, boxes, drivers, alerts, last, pnl] = await Promise.all([
       safe(backend.list('stock_moves', { filters: [['move_date', 'gte', since]], select: 'move_date,qty,doc_type,item_id,warehouse_id,unit_cost,reason' })),
       safe(backend.list('v_item_stock')),
       safe(backend.list('v_wo_cost', { filters: [['status', 'neq', 'cancelled']] })),
@@ -26,8 +27,9 @@ export default function Dashboard() {
       safe(backend.list('v_driver_dues')),
       safe(backend.list('v_alerts')),
       safe(backend.list('stock_moves', { order: 'created_at', limit: 10 })),
+      pnlData(monthStart(), today()).catch(() => null),
     ])
-    return { moves, stock, wos, sinv, cash, exps, parties, boxes, drivers, alerts, last }
+    return { moves, stock, wos, sinv, cash, exps, parties, boxes, drivers, alerts, last, pnl }
   }, [])
 
   const k = useMemo(() => {
@@ -103,7 +105,8 @@ export default function Dashboard() {
         <Stat label="كميات تحت التشغيل" value={num(k.wipQty)} sub="خامات مصروفة لأوامر مفتوحة" icon="steps" tone="blue" onClick={() => go('/costing')} />
         <Stat label="أوامر تشغيل مفتوحة" value={num(k.open.length)} sub={`${k.late.length} متأخر`} icon="gear" tone={k.late.length ? 'red' : 'blue'} onClick={() => go('/m/work_orders')} />
         <Stat label="مبيعات الشهر" value={money(k.salesMonth)} sub={`تحصيل ${money(k.collMonth)}`} icon="receipt" tone="green" onClick={() => go('/m/sales_invoices')} />
-        <Stat label="مصروفات الشهر" value={money(k.expMonth)} icon="bill" tone="amber" onClick={() => go('/m/expenses')} />
+        {data.pnl ? <Stat label={data.pnl.net >= 0 ? 'صافي ربح الشهر' : 'صافي خسارة الشهر'} value={money(Math.abs(data.pnl.net))} sub={`مجمل الربح ${money(data.pnl.gross)} — المصروفات ${money(k.expMonth)}`} icon="coins" tone={data.pnl.net >= 0 ? 'green' : 'red'} onClick={() => go('/reports', { r: 'pnl' })} />
+          : <Stat label="مصروفات الشهر" value={money(k.expMonth)} icon="bill" tone="amber" onClick={() => go('/m/expenses')} />}
         <Stat label="رصيد الخزائن" value={money(k.cashBal)} icon="safe" tone={k.cashBal < 0 ? 'red' : 'teal'} onClick={() => go('/m/cashboxes')} />
         <Stat label="مستحق لينا عند العملاء" value={money(k.recv)} icon="users" tone="blue" onClick={() => go('/balances')} />
         <Stat label="مستحق علينا للموردين" value={money(k.pay)} icon="truck-in" tone="red" onClick={() => go('/balances', { tab: 'suppliers' })} />

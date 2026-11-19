@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 import { backend } from '../lib/backend'
 import { useLoad, useRefMap, useAuth, go, Link } from '../lib/app'
 import { fmtDate, fmtDateTime, num, money, n, label, monthStart, today } from '../lib/format'
-import { Btn, DataTable, Spinner, ErrorBox, Stat, Badge } from '../ui/kit'
+import { Btn, DataTable, Spinner, ErrorBox, Stat, Badge, TableTitle } from '../ui/kit'
 import { downloadXlsx } from '../lib/xlsx'
 import { openPrint, companyHeader, table as ptable, esc } from '../lib/print'
 import { code128Svg } from '../lib/barcode'
@@ -21,7 +21,8 @@ export function withRunning(rows, debitKey, creditKey) {
 }
 
 function Section({ title, children, actions }) {
-  return <div className="card"><div className="card-h"><h3 className="card-t">{title}</h3><div className="card-a">{actions}</div></div>{children}</div>
+  const page = typeof document !== 'undefined' ? document.querySelector('.page-head h1')?.textContent : ''
+  return <div className="card"><div className="card-h"><h3 className="card-t">{title}</h3><div className="card-a">{actions}</div></div><TableTitle.Provider value={`${title}${page ? ' — ' + page : ''}`}>{children}</TableTitle.Provider></div>
 }
 
 // ═════════ الصنف: الرصيد وحركة الصنف والباركود ═════════

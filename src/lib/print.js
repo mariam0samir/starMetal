@@ -22,7 +22,7 @@ table { width: 100%; border-collapse: collapse; margin: 6px 0 10px; }
 th { background: #2a313c; color: #fff; font-weight: 600; padding: 6px 5px; font-size: 11px; }
 td { border: 1px solid #d5dce6; padding: 5px; font-size: 11px; }
 tr:nth-child(even) td { background: #f6f8fb; }
-td.n, th.n { text-align: center; white-space: nowrap; }
+td.n, th.n { text-align: center; white-space: nowrap; direction: ltr; unicode-bidi: isolate; }
 tfoot td { background: #fdf1dc !important; font-weight: 700; }
 .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 8px 0 14px; }
 .kpis div { border: 1px solid #d5dce6; border-radius: 8px; padding: 8px; }

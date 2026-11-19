@@ -1,6 +1,6 @@
 // محرّك التقارير: كل تقرير بيرجع { title, columns, rows, totals, kpis }
 import { backend } from './backend'
-import { fmtDate, num, money, n, label, addDays } from './format'
+import { fmtDate, num, money, n, label, addDays, MONTHS } from './format'
 
 const T = (key, label, type = 'text', extra = {}) => ({ key, label, type, ...extra })
 const inRange = (col, from, to) => [[col, 'gte', from], [col, 'lte', col.endsWith('_at') ? to + 'T23:59:59' : to]]
@@ -20,8 +20,10 @@ export const REPORT_GROUPS = [
   ['المخازن', ['stock_moves', 'stock_balance', 'low_stock', 'top_consumed', 'in_out']],
   ['الإنتاج', ['production_daily', 'production_monthly', 'work_orders', 'wo_cost', 'wo_profit', 'scrap', 'qc', 'machines']],
   ['المبيعات والمشتريات', ['sales', 'purchases', 'customers', 'suppliers']],
+  ['الأرباح والخسائر', ['pnl', 'pnl_monthly', 'wo_profit']],
   ['الحسابات', ['expenses', 'treasury', 'cash_daily']],
   ['النقل والموظفين', ['vehicles', 'drivers', 'attendance']],
+  ['النظام', ['system_overview', 'monthly_summary', 'drafts', 'activity']],
 ]
 
 // params: { from, to, warehouse, party, item, driver, cashbox, vehicle }
@@ -255,6 +257,208 @@ export const REPORTS = {
   },
 }
 
+
+// ═════════ تقارير النظام ═════════
+const DOC_TABLES = [['gate_in', 'أذون الدخول', 'entry_at'], ['gate_out', 'أذون الخروج', 'exit_at'], ['stock_docs', 'أذون المخزن', 'doc_date'], ['scrap_records', 'تسجيلات الهالك', 'rec_date'], ['scrap_sales', 'مبيعات الخردة', 'sale_date'], ['qc_inspections', 'فحوصات الجودة', 'insp_date'], ['purchase_requests', 'طلبات الشراء', 'req_date'], ['purchase_orders', 'أوامر الشراء', 'po_date'], ['supplier_invoices', 'فواتير الموردين', 'inv_date'], ['sales_orders', 'أوامر البيع', 'so_date'], ['sales_invoices', 'فواتير المبيعات', 'inv_date'], ['cash_transactions', 'حركات الخزينة', 'tx_date'], ['expenses', 'المصروفات', 'exp_date'], ['trips', 'الرحلات', 'trip_date']]
+const safeList = (t, o) => backend.list(t, o).catch(() => [])
+
+REPORTS.system_overview = {
+  title: 'تقرير النظام الشامل', perm: 'reports',
+  async run({ from, to }, R) {
+    const [profiles, stock, parties, boxes, dues, alerts, wos, moves, audit, ...docs] = await Promise.all([
+      safeList('profiles'), safeList('v_item_stock'), safeList('v_party_balances'), safeList('v_cash_balances'), safeList('v_driver_dues'), safeList('v_alerts'), safeList('v_wo_cost'),
+      safeList('stock_moves', { filters: inRange('move_date', from, to), select: 'id,qty,reason,doc_type' }), safeList('audit_log', { filters: [['at', 'gte', from], ['at', 'lte', to + 'T23:59:59']], select: 'id,action,user_name,table_name', limit: 20000 }),
+      ...DOC_TABLES.map(([t, , d]) => safeList(t, { filters: inRange(d, from, to), select: 'id,status' + (['sales_invoices', 'supplier_invoices', 'scrap_sales'].includes(t) ? ',total' : t === 'expenses' || t === 'cash_transactions' ? ',amount' + (t === 'cash_transactions' ? ',kind' : '') : '') })),
+    ])
+    const rows = []
+    const add = (section, metric, value) => rows.push({ section, metric, value })
+    const L = R.lists
+    add('النظام', 'المستخدمين المفعّلين', num(profiles.filter((p) => p.active).length))
+    add('النظام', 'مستخدمين مستنيين تفعيل', num(profiles.filter((p) => !p.active).length))
+    add('النظام', 'العمليات المسجلة في الفترة', num(audit.length))
+    add('البيانات الأساسية', 'الأصناف', `${num(L.items.length)} (خامات ${L.items.filter((i) => i.kind === 'raw').length} — منتج نهائي ${L.items.filter((i) => i.kind === 'finished').length})`)
+    add('البيانات الأساسية', 'أنواع الخامات', num(Object.keys(R.material_types).length))
+    add('البيانات الأساسية', 'المخازن', num(L.warehouses.length))
+    add('البيانات الأساسية', 'العملاء', num(L.parties.filter((p) => ['customer', 'both', 'scrap_buyer'].includes(p.kind)).length))
+    add('البيانات الأساسية', 'الموردين', num(L.parties.filter((p) => ['supplier', 'both'].includes(p.kind)).length))
+    add('البيانات الأساسية', 'الماكينات / الموظفين', `${num(L.machines.length)} / ${num(L.employees.length)}`)
+    add('البيانات الأساسية', 'السيارات / السائقين', `${num(L.vehicles.length)} / ${num(L.drivers.length)}`)
+    add('المخزون', 'قيمة المخزون الحالية', money(sum(stock, 'value')))
+    add('المخزون', 'أصناف تحت حد الطلب', num(stock.filter((s) => s.is_low).length))
+    add('المخزون', 'حركات المخزون في الفترة', num(moves.length))
+    add('المخزون', 'إجمالي الوارد / المنصرف في الفترة', `${num(sum(moves.filter((m) => m.qty > 0), 'qty'))} / ${num(-sum(moves.filter((m) => m.qty < 0), 'qty'))}`)
+    add('الإنتاج', 'أوامر التشغيل المفتوحة', num(wos.filter((w) => !['completed', 'delivered', 'cancelled'].includes(w.status)).length))
+    add('الإنتاج', 'أوامر التشغيل المتأخرة', num(wos.filter((w) => w.is_late).length))
+    add('الإنتاج', 'الإنتاج في الفترة', num(sum(moves.filter((m) => m.reason === 'استلام إنتاج'), 'qty')))
+    const dt = Object.fromEntries(DOC_TABLES.map(([t], i) => [t, docs[i]]))
+    const ok = (t) => dt[t].filter((x) => x.status === 'approved')
+    add('المبيعات والمشتريات', 'مبيعات الفترة', money(sum(ok('sales_invoices'), 'total')))
+    add('المبيعات والمشتريات', 'مشتريات الفترة', money(sum(ok('supplier_invoices'), 'total')))
+    add('المبيعات والمشتريات', 'مديونيات العملاء الحالية', money(sum(parties.filter((p) => n(p.balance) > 0), 'balance')))
+    add('المبيعات والمشتريات', 'المستحق للموردين حاليًا', money(-sum(parties.filter((p) => n(p.balance) < 0), 'balance')))
+    add('الحسابات', 'رصيد كل الخزائن والبنوك', money(sum(boxes, 'balance')))
+    add('الحسابات', 'تحصيل الفترة', money(sum(ok('cash_transactions').filter((x) => x.kind === 'receipt'), 'amount')))
+    add('الحسابات', 'مصروفات الفترة', money(sum(ok('expenses'), 'amount')))
+    add('النقل', 'رحلات الفترة', num(ok('trips').length))
+    add('النقل', 'مستحقات السائقين الحالية', money(sum(dues.filter((d) => n(d.net_due) > 0), 'net_due')))
+    add('التنبيهات', 'إجمالي التنبيهات المفتوحة', num(alerts.length))
+    for (const [k, l] of Object.entries(groupBy(alerts, (a) => a.kind))) add('التنبيهات', { low_stock: 'رصيد منخفض', late_wo: 'أوامر متأخرة', vehicle_license: 'تراخيص سيارات', vehicle_insurance: 'تأمين سيارات', vehicle_service: 'صيانة سيارات', vehicle_oil: 'تغيير زيت', driver_license: 'رخص سائقين', machine_maintenance: 'صيانة ماكينات', invoice_due: 'فواتير متأخرة', cheque_due: 'شيكات مستحقة' }[k] || k, num(l.length))
+    const docRows = DOC_TABLES.map(([t, l], i) => ({ l, total: docs[i].length, approved: docs[i].filter((x) => x.status === 'approved').length, draft: docs[i].filter((x) => x.status === 'draft').length, cancelled: docs[i].filter((x) => x.status === 'cancelled').length })).filter((r) => r.total)
+    return {
+      columns: [T('section', 'القسم'), T('metric', 'المؤشر'), T('value', 'القيمة')], rows,
+      kpis: [['المستخدمين', num(profiles.filter((p) => p.active).length)], ['قيمة المخزون', money(sum(stock, 'value'))], ['مبيعات الفترة', money(sum(ok('sales_invoices'), 'total'))], ['التنبيهات', num(alerts.length)]],
+      extra: { title: 'المستندات في الفترة حسب الحالة', columns: [T('l', 'المستند'), T('total', 'الإجمالي', 'num'), T('approved', 'معتمد', 'num'), T('draft', 'مسودة', 'num'), T('cancelled', 'ملغي', 'num')], rows: docRows },
+    }
+  },
+}
+
+REPORTS.drafts = {
+  title: 'مستندات مستنية اعتماد', perm: 'reports', noDate: true,
+  async run(_, R) {
+    const all = await Promise.all(DOC_TABLES.map(([t, l, d]) => safeList(t, { filters: [['status', 'eq', 'draft']], order: d, asc: true }).then((rs) => rs.map((r) => ({ ...r, l, d: r[d], t })))))
+    const rows = all.flat().sort((a, b) => String(a.d).localeCompare(String(b.d)))
+    return { columns: [T('d', 'التاريخ', 'date'), T('l', 'نوع المستند'), T('no', 'الرقم'), T('who', 'الجهة', 'text', { value: (r) => R.parties[r.supplier_id || r.customer_id || r.party_id || r.buyer_id]?.name || R.drivers[r.driver_id]?.name || '' }), T('amt', 'المبلغ', 'money', { value: (r) => r.total ?? r.amount ?? null })], rows, kpis: [['مستندات مستنية اعتماد', num(rows.length)]] }
+  },
+}
+
+REPORTS.activity = {
+  title: 'نشاط المستخدمين', perm: 'audit',
+  async run({ from, to }) {
+    const log = await backend.list('audit_log', { filters: [['at', 'gte', from], ['at', 'lte', to + 'T23:59:59']], select: 'user_name,action,table_name,at', limit: 50000 })
+    const rows = Object.entries(groupBy(log, (l) => l.user_name || 'النظام')).map(([u, ls]) => ({ u, total: ls.length, ins: ls.filter((l) => l.action === 'insert').length, upd: ls.filter((l) => l.action === 'update').length, del: ls.filter((l) => l.action === 'delete').length, last: ls.map((l) => l.at).sort().slice(-1)[0] })).sort((a, b) => b.total - a.total)
+    return { columns: [T('u', 'المستخدم'), T('total', 'إجمالي العمليات', 'num'), T('ins', 'إضافة', 'num'), T('upd', 'تعديل', 'num'), T('del', 'حذف', 'num'), T('last', 'آخر نشاط', 'date')], rows, totals: { total: sum(rows, 'total') }, kpis: [['إجمالي العمليات', num(log.length)], ['عمليات حذف', num(sum(rows, 'del'))]] }
+  },
+}
+
+REPORTS.monthly_summary = {
+  title: 'الملخص الشهري (مقارنة الشهور)', perm: 'reports',
+  async run({ from, to }) {
+    const [moves, si, pi, cash, ex, sc] = await Promise.all([
+      safeList('stock_moves', { filters: [...inRange('move_date', from, to), ['qty', 'gt', 0]], select: 'move_date,qty,reason,doc_type' }),
+      safeList('sales_invoices', { filters: [...inRange('inv_date', from, to), ['status', 'eq', 'approved']], select: 'inv_date,total' }),
+      safeList('supplier_invoices', { filters: [...inRange('inv_date', from, to), ['status', 'eq', 'approved']], select: 'inv_date,total' }),
+      safeList('cash_transactions', { filters: [...inRange('tx_date', from, to), ['status', 'eq', 'approved']], select: 'tx_date,kind,amount,party_type' }),
+      safeList('expenses', { filters: [...inRange('exp_date', from, to), ['status', 'eq', 'approved']], select: 'exp_date,amount' }),
+      safeList('scrap_records', { filters: [...inRange('rec_date', from, to), ['status', 'eq', 'approved']], select: 'rec_date,weight' }),
+    ])
+    const months = []
+    for (let m = from.slice(0, 7); m <= to.slice(0, 7) && months.length < 60; m = addMonthKey(m)) months.push(m)
+    const by = (rows, dk, vk, pred = () => true) => (m) => sum(rows.filter((r) => String(r[dk]).startsWith(m) && pred(r)), vk)
+    const rows = months.map((m) => {
+      const r = { m, prod: by(moves, 'move_date', 'qty', (x) => x.reason === 'استلام إنتاج')(m), rawin: by(moves, 'move_date', 'qty', (x) => x.doc_type === 'gate_in')(m), sales: by(si, 'inv_date', 'total')(m), coll: by(cash, 'tx_date', 'amount', (x) => x.kind === 'receipt' && x.party_type === 'customer')(m), purch: by(pi, 'inv_date', 'total')(m), paid: by(cash, 'tx_date', 'amount', (x) => x.kind === 'payment' && x.party_type === 'supplier')(m), exp: by(ex, 'exp_date', 'amount')(m), scrap: by(sc, 'rec_date', 'weight')(m) }
+      r.net = r.sales - r.purch - r.exp
+      return r
+    })
+    const tot = Object.fromEntries(['prod', 'rawin', 'sales', 'coll', 'purch', 'paid', 'exp', 'scrap', 'net'].map((k) => [k, sum(rows, k)]))
+    return {
+      columns: [T('m', 'الشهر', 'text', { value: (r) => `${MONTHS[Number(r.m.slice(5, 7)) - 1]} ${r.m.slice(0, 4)}` }), T('prod', 'الإنتاج', 'num'), T('rawin', 'خامات واردة', 'num'), T('sales', 'المبيعات', 'money'), T('coll', 'التحصيل', 'money'), T('purch', 'المشتريات', 'money'), T('paid', 'المدفوع للموردين', 'money'), T('exp', 'المصروفات', 'money'), T('scrap', 'الهالك (كجم)', 'num'), T('net', 'مبيعات − مشتريات − مصروفات', 'money')],
+      rows, totals: tot, chart: rows.length > 1 ? rows.map((r) => ({ label: MONTHS[Number(r.m.slice(5, 7)) - 1], v: r.sales })) : null,
+      kpis: [['إجمالي المبيعات', money(tot.sales)], ['إجمالي المصروفات', money(tot.exp)], ['أعلى شهر مبيعات', rows.length ? (([r]) => `${MONTHS[Number(r.m.slice(5, 7)) - 1]} ${r.m.slice(0, 4)}`)([...rows].sort((a, b) => b.sales - a.sales)) : '—']],
+    }
+  },
+}
+const addMonthKey = (m) => { const [y, mo] = m.split('-').map(Number); return mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, '0')}` }
+
+// ═════════ قائمة الأرباح والخسائر ═════════
+async function pnlData(from, to) {
+  const [si, ss, outMoves, adjMoves, ex, trips, dtx, etx] = await Promise.all([
+    safeList('sales_invoices', { filters: [...inRange('inv_date', from, to), ['status', 'eq', 'approved']], select: 'inv_date,subtotal,discount,transport_cost,tax_amount,total' }),
+    safeList('scrap_sales', { filters: [...inRange('sale_date', from, to), ['status', 'eq', 'approved']], select: 'sale_date,total' }),
+    safeList('stock_moves', { filters: [...inRange('move_date', from, to), ['doc_type', 'in', ['gate_out', 'scrap_sales']]], select: 'move_date,qty,unit_cost,doc_type' }),
+    safeList('stock_moves', { filters: [...inRange('move_date', from, to), ['doc_type', 'eq', 'stock_docs']], select: 'move_date,qty,unit_cost,reason' }),
+    safeList('expenses', { filters: [...inRange('exp_date', from, to), ['status', 'eq', 'approved']], select: 'exp_date,amount,category,wo_id' }),
+    safeList('trips', { filters: [...inRange('trip_date', from, to), ['status', 'eq', 'approved']], select: 'trip_date,fare' }),
+    safeList('driver_transactions', { filters: inRange('tx_date', from, to), select: 'tx_date,kind,amount' }),
+    safeList('employee_transactions', { filters: inRange('tx_date', from, to), select: 'tx_date,kind,amount' }),
+  ])
+  const val = (m) => Math.abs(n(m.qty)) * n(m.unit_cost)
+  const adj = adjMoves.filter((m) => m.reason === 'فرق جرد' || /تسوية/.test(m.reason || ''))
+  const d = {
+    sales: sum(si, (x) => n(x.subtotal) - n(x.discount)), transportRev: sum(si, 'transport_cost'), scrapRev: sum(ss, 'total'), vat: sum(si, 'tax_amount'),
+    cogs: sum(outMoves.filter((m) => m.doc_type === 'gate_out' && m.qty < 0), val), scrapCost: sum(outMoves.filter((m) => m.doc_type === 'scrap_sales' && m.qty < 0), val),
+    invLoss: sum(adj.filter((m) => m.qty < 0), val), invGain: sum(adj.filter((m) => m.qty > 0), val),
+    transport: sum(trips, 'fare'),
+    drivers: sum(dtx.filter((x) => ['bonus', 'salary'].includes(x.kind)), 'amount') - sum(dtx.filter((x) => x.kind === 'deduction'), 'amount'),
+    payroll: sum(etx.filter((x) => ['salary_payment', 'bonus', 'overtime'].includes(x.kind)), 'amount') - sum(etx.filter((x) => x.kind === 'deduction'), 'amount'),
+    opex: Object.entries(groupBy(ex.filter((e) => !e.wo_id), (e) => e.category)).map(([c, es]) => ({ c, v: sum(es, 'amount') })).sort((a, b) => b.v - a.v),
+    woDirect: sum(ex.filter((e) => e.wo_id), 'amount'),
+  }
+  d.revenue = d.sales + d.transportRev + d.scrapRev
+  d.cost = d.cogs + d.scrapCost
+  d.gross = d.revenue - d.cost
+  d.opexTotal = sum(d.opex, 'v')
+  d.operating = d.opexTotal + d.transport + d.drivers + d.payroll
+  d.net = d.gross - d.operating - d.invLoss + d.invGain
+  return d
+}
+
+REPORTS.pnl = {
+  title: 'قائمة الأرباح والخسائر', perm: 'reports',
+  async run({ from, to }) {
+    const d = await pnlData(from, to)
+    // نفس المدة اللي قبلها للمقارنة
+    const days = Math.round((new Date(to) - new Date(from)) / 864e5) + 1
+    const pTo = addDays(from, -1), pFrom = addDays(from, -days)
+    const p = await pnlData(pFrom, pTo)
+    const rows = []
+    const L = (label, v, pv, kind) => { const k = kind || (label.startsWith('   ') ? 'item' : 'total'); v = v === null ? null : v || 0; pv = pv === null ? null : pv || 0; rows.push({ label: label.trim(), v, pv, kind: k, pct: v !== null && d.revenue ? v / d.revenue * 100 : null, ch: v !== null && pv ? (v - pv) / Math.abs(pv) * 100 : null }) }
+    L('الإيرادات', null, null, 'head')
+    L('   مبيعات المنتجات (بعد الخصم ومن غير الضريبة)', d.sales, p.sales)
+    if (d.transportRev || p.transportRev) L('   إيراد نقل محمّل على العملاء', d.transportRev, p.transportRev)
+    if (d.scrapRev || p.scrapRev) L('   مبيعات الخردة', d.scrapRev, p.scrapRev)
+    L('إجمالي الإيرادات', d.revenue, p.revenue, 'total')
+    L('تكلفة المبيعات', null, null, 'head')
+    L('   تكلفة البضاعة المسلّمة للعملاء', -d.cogs, -p.cogs)
+    if (d.scrapCost || p.scrapCost) L('   تكلفة الخردة المباعة', -d.scrapCost, -p.scrapCost)
+    L('مجمل الربح', d.gross, p.gross, 'total')
+    L('المصروفات', null, null, 'head')
+    const cats = [...new Set([...d.opex.map((x) => x.c), ...p.opex.map((x) => x.c)])]
+    for (const c of cats) L('   ' + c, -(d.opex.find((x) => x.c === c)?.v || 0), -(p.opex.find((x) => x.c === c)?.v || 0))
+    if (d.transport || p.transport) L('   نقلات السائقين', -d.transport, -p.transport)
+    if (d.drivers || p.drivers) L('   رواتب ومكافآت السائقين', -d.drivers, -p.drivers)
+    if (d.payroll || p.payroll) L('   مرتبات ومكافآت وإضافي الموظفين', -d.payroll, -p.payroll)
+    L('إجمالي المصروفات', -d.operating, -p.operating, 'total')
+    if (d.invLoss || d.invGain || p.invLoss || p.invGain) L('فروق جرد وتسويات مخزون', d.invGain - d.invLoss, p.invGain - p.invLoss)
+    L(d.net >= 0 ? 'صافي الربح' : 'صافي الخسارة', d.net, p.net, 'net')
+    return {
+      title: `قائمة الأرباح والخسائر من ${fmtDate(from)} إلى ${fmtDate(to)}`,
+      columns: [T('label', 'البند'), T('v', 'الفترة الحالية', 'money'), T('pct', '% من الإيرادات', 'pct'), T('pv', `الفترة السابقة (${fmtDate(pFrom)} — ${fmtDate(pTo)})`, 'money'), T('ch', 'التغيير', 'pct')],
+      rows,
+      kpis: [['إجمالي الإيرادات', money(d.revenue)], ['مجمل الربح', `${money(d.gross)} (${num(d.revenue ? d.gross / d.revenue * 100 : 0)}%)`], ['إجمالي المصروفات', money(d.operating)], [d.net >= 0 ? 'صافي الربح' : 'صافي الخسارة', `${money(Math.abs(d.net))} (${num(d.revenue ? d.net / d.revenue * 100 : 0)}%)`]],
+      pnl: { net: d.net, revenue: d.revenue },
+      extra: { title: 'ملاحظات على الحساب', columns: [T('t', 'ملاحظة')], rows: [
+        { t: 'المبيعات محسوبة من فواتير المبيعات المعتمدة من غير ضريبة القيمة المضافة' + (d.vat ? ` (الضريبة المحصّلة ${money(d.vat)} مستحقة للضرائب ومش إيراد)` : '') },
+        { t: 'تكلفة المبيعات = تكلفة المنتجات اللي خرجت بأذون خروج معتمدة، بالتكلفة المحسوبة من أوامر التشغيل' },
+        { t: 'فواتير المشتريات مش مصروف: الخامات بتدخل المخزون وبتتحمّل على التكلفة لما المنتج يتباع' },
+        { t: 'المصروفات المربوطة بأمر تشغيل' + (d.woDirect ? ` (${money(d.woDirect)})` : '') + ' داخلة في تكلفة الإنتاج، فمش متكررة هنا' },
+        { t: 'لو العمالة متسجلة في تكاليف أمر التشغيل، متسجلهاش تاني كمصروف «أجور» عشان متتحسبش مرتين' },
+      ] },
+    }
+  },
+}
+
+REPORTS.pnl_monthly = {
+  title: 'الأرباح والخسائر شهر بشهر', perm: 'reports',
+  async run({ from, to }) {
+    const months = []
+    for (let m = from.slice(0, 7); m <= to.slice(0, 7) && months.length < 36; m = addMonthKey(m)) months.push(m)
+    const rows = []
+    for (const m of months) {
+      const f = m < from.slice(0, 7) ? from : (m === from.slice(0, 7) ? from : m + '-01')
+      const last = (() => { const [y, mo] = m.split('-').map(Number); return new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10) })()
+      const t = last > to ? to : last
+      const d = await pnlData(f, t)
+      rows.push({ m, rev: d.revenue, cost: d.cost, gross: d.gross, exp: d.operating, inv: d.invGain - d.invLoss, net: d.net, margin: d.revenue ? d.net / d.revenue * 100 : null })
+    }
+    const tot = Object.fromEntries(['rev', 'cost', 'gross', 'exp', 'inv', 'net'].map((k) => [k, sum(rows, k)]))
+    return {
+      columns: [T('m', 'الشهر', 'text', { value: (r) => `${MONTHS[Number(r.m.slice(5, 7)) - 1]} ${r.m.slice(0, 4)}` }), T('rev', 'الإيرادات', 'money'), T('cost', 'تكلفة المبيعات', 'money'), T('gross', 'مجمل الربح', 'money'), T('exp', 'المصروفات', 'money'), T('inv', 'فروق المخزون', 'money'), T('net', 'صافي الربح / الخسارة', 'money'), T('margin', 'هامش صافي', 'pct')],
+      rows, totals: tot, chart: rows.length > 1 ? rows.map((r) => ({ label: MONTHS[Number(r.m.slice(5, 7)) - 1], v: Math.max(0, r.net) })) : null,
+      kpis: [['صافي الفترة', money(tot.net)], ['الشهور', `${rows.filter((r) => r.net > 0).length} ربح — ${rows.filter((r) => r.net < 0).length} خسارة`]],
+    }
+  },
+}
+
 async function partyReport(kind, from, to, R) {
   const [bal, led] = await Promise.all([backend.list('v_party_balances'), backend.list('v_party_ledger', { filters: inRange('entry_date', from, to) })])
   const kinds = kind === 'customer' ? ['customer', 'both', 'scrap_buyer'] : ['supplier', 'both']
@@ -278,7 +482,10 @@ export const cellShow = (c, r) => {
   if (v === null || v === undefined || v === '') return ''
   if (c.type === 'money') return money(v)
   if (c.type === 'num') return num(v, 3)
+  if (c.type === 'pct') return num(v) + '%'
   if (c.type === 'date') return fmtDate(v)
   return String(v)
 }
 export const totalShow = (c, totals) => (totals && totals[c.key] !== undefined ? (c.type === 'money' ? money(totals[c.key]) : num(totals[c.key], 3)) : '')
+
+export { pnlData }

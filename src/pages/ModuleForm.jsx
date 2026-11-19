@@ -238,7 +238,7 @@ export default function ModuleForm({ mkey, id }) {
     <div className="page form-page">
       <PageHead title={title} icon={m.icon} sub={<Link to={'/m/' + mkey}>← {m.title}</Link>}>
         {!isNew && m.fields.some((f) => f.k === 'status') && <Badge value={row.status} opt={m.fields.find((f) => f.k === 'status').options} />}
-        {!isNew && m.printable && <Btn icon="print" onClick={printDoc}>طباعة / PDF</Btn>}
+        {!isNew && <Btn icon="print" onClick={printDoc}>طباعة / PDF</Btn>}
         {canEdit && <Btn kind="primary" icon="check" busy={busy === 'save'} onClick={() => save()}>{isNew ? 'حفظ' : 'حفظ التعديلات'}</Btn>}
         {canApprove && status === 'draft' && <Btn kind="success" icon="stamp" busy={busy === 'approve'} onClick={() => setAsk('approve')}>اعتماد</Btn>}
         {canApprove && status === 'approved' && <Btn icon="undo" busy={busy === 'unapprove'} onClick={() => setAsk('unapprove')}>إلغاء الاعتماد</Btn>}
